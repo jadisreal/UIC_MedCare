@@ -10,25 +10,72 @@ import Sidebar from '../components/Sidebar';
 // Add print-specific styles to the head
 const printStyles = `
 @media print {
-    /* Hide everything by default, reveal printable area */
+    /* Hide everything except printable area */
     body * { visibility: hidden; }
-    #printable-area, #printable-area * { visibility: visible; }
-    #printable-area { position: absolute; left: 0; top: 0; width: 100%; }
+    #printable-area, #printable-area * { visibility: visible !important; }
+    #printable-area { 
+        position: absolute; 
+        left: 0; 
+        top: 0; 
+        width: 100%; 
+        overflow: visible !important; 
+    }
 
-    /* Hide the right-side 'Commonly Used Medicine' card and let the chart use full width */
+    /* Hide the right-side 'Commonly Used Medicine' card */
     .print-hide-right { display: none !important; }
-    /* Prefer Letter (bondpaper) sizing but keep portrait fallback; reduce margins slightly for more room */
-    @page { size: Letter portrait; margin: 12mm; }
-    /* Keep a fallback for A4 if the printer uses that */
-    @page :left { size: A4 portrait; margin: 20mm; }
+    
+    /* Bondpaper (Letter) sizing */
+    @page { size: Letter portrait; margin: 15mm; }
 
-    #printable-area { box-sizing: border-box; padding: 0; margin: 0; }
-    /* Limit chart height to printable area minus header/footer to avoid overflow; slightly looser so labels fit */
-    .print-expand-chart .h-72 { max-height: calc(100vh - 160px) !important; height: auto !important; }
-    /* Ensure the chart container scales contents to fit */
-    .print-expand-chart .recharts-wrapper { max-height: calc(100vh - 180px) !important; }
-    /* Add additional right padding so chart doesn't touch the page edge on print (a bit more breathing room) */
-    .print-expand-chart { padding-right: 25mm !important; }
+    #printable-area { 
+        box-sizing: border-box; 
+        padding: 10px; 
+        margin: 0; 
+    }
+    
+    /* Remove horizontal scroll */
+    body { overflow-x: hidden !important; }
+    
+    /* Constrain the chart container to fit within bondpaper with proper padding */
+    .print-expand-chart { 
+        padding: 0 20px !important;
+        max-width: 100% !important;
+        overflow: visible !important;
+        page-break-inside: avoid;
+    }
+    
+    /* Set appropriate chart height */
+    .print-expand-chart .h-72 { 
+        height: 400px !important; 
+        max-width: 100% !important;
+        overflow: visible !important;
+    }
+    
+    /* Ensure recharts elements are visible */
+    .recharts-wrapper, 
+    .recharts-responsive-container,
+    .recharts-surface,
+    .recharts-cartesian-grid,
+    .recharts-bar,
+    .recharts-xaxis,
+    .recharts-yaxis { 
+        visibility: visible !important;
+        overflow: visible !important;
+    }
+    
+    /* Hide tooltip and other interactive elements in print */
+    .recharts-tooltip-wrapper,
+    .recharts-default-tooltip,
+    .recharts-tooltip-cursor { 
+        display: none !important;
+        visibility: hidden !important;
+    }
+    
+    /* Add padding to the main card */
+    .lg\\:col-span-2 > div {
+        padding: 20px !important;
+        max-width: 100% !important;
+    }
 }
 `;
 

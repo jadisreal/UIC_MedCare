@@ -38,6 +38,11 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({
     const [isSubmitting, setIsSubmitting] = useState(false);
     // Removed view state
 
+    // Remove duplicates from medicine options and sort alphabetically
+    const uniqueMedicineOptions = React.useMemo(() => {
+        return Array.from(new Set(medicineOptions)).sort((a, b) => a.localeCompare(b));
+    }, [medicineOptions]);
+
     // Reset form when modal opens
     useEffect(() => {
         if (isOpen) {
@@ -172,8 +177,8 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({
                                             placeholder="Enter or select medicine name"
                                         />
                                         <datalist id="medicine-options">
-                                            {medicineOptions.map((m) => (
-                                                <option key={m} value={m} />
+                                            {uniqueMedicineOptions.map((m, idx) => (
+                                                <option key={`${m}-${idx}`} value={m} />
                                             ))}
                                         </datalist>
                                         {errors.medicineName && <p className="text-red-500 text-xs mt-1">{errors.medicineName}</p>}

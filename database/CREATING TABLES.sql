@@ -28,7 +28,14 @@ CREATE TABLE users (
 
 INSERT INTO users (user_id, email, branch_id, name, created_at) VALUES
 (1, 'fbangoy_230000001354@uic.edu.ph', 1, 'Nurse Francis', GETDATE()),
-(2, 'sampon_230000001231@uic.edu.ph', 2, 'Nurse Seb', GETDATE());
+(2, 'sampon_230000001231@uic.edu.ph', 2, 'Nurse Seb', GETDATE()),
+(3, 'scabrera@uic.edu.ph', 1, 'Nurse Sheryl', GETDATE());
+
+INSERT INTO users (user_id, email, branch_id, name, created_at) VALUES
+(3, 'scabrera@uic.edu.ph', 1, 'Nurse Sheryl', GETDATE());
+
+INSERT INTO users (user_id, email, branch_id, name, created_at) VALUES
+(4, 'rbisnar_230000001886@uic.edu.ph', 2, 'Nurse Bisnar', GETDATE());
 
 SELECT * FROM users;
 
