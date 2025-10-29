@@ -49,8 +49,8 @@ const About: React.FC = () => {
     const [isInventoryOpen, setInventoryOpen] = useState(false);
 
     const notifications: NotificationType[] = [
-        { id: 1, type: 'updatedMedicine', message: 'Updated Medicine', time: '5hrs ago' },
-        { id: 2, type: 'medicineRequest', message: 'Medicine Request Received', time: '10hrs ago' },
+        { id: 1, type: 'info', message: 'Updated Medicine', isRead: false, createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString() },
+        { id: 2, type: 'success', message: 'Medicine Request Received', isRead: false, createdAt: new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString() },
     ];
     
     const creators = [
@@ -146,10 +146,7 @@ const About: React.FC = () => {
                             <img src="/images/Logo.png" alt="UIC Logo" className="w-15 h-15 mr-2"/>
                             <h1 className="text-white text-[28px] font-semibold">UIC MediCare</h1>
                         </div>
-                        <NotificationBell
-                            notifications={notifications}
-                            onSeeAll={() => handleNavigation('../Notification')}
-                        />
+                            <NotificationBell />
                     </div>
                 </header>
 

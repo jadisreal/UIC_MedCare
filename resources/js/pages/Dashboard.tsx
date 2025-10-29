@@ -1,8 +1,27 @@
 import React, { useState, useEffect } from 'react';
-import NotificationBell, { Notification as NotificationType } from '../components/NotificationBell';
 import { router } from '@inertiajs/react';
 import Sidebar from '../components/Sidebar';
-import { Menu } from 'lucide-react';
+import NotificationBell, { Notification as NotificationType } from '../components/NotificationBell';
+import {
+    Bell,
+    User,
+    LayoutDashboard,
+    Archive,
+    FileText,
+    History,
+    ShieldQuestion,
+    Search,
+    Printer,
+    GraduationCap,
+    Briefcase,
+    ChevronDown,
+    Menu,
+    Users,
+    Stethoscope,
+    Calendar,
+    MessageSquare
+} from 'lucide-react';
+import { getStudents, getEmployees } from '../data/mockData';
 
 interface DateTimeData {
     date: string;
@@ -31,11 +50,7 @@ const Dashboard: React.FC = () => {
     const [isInventoryOpen, setInventoryOpen] = useState(false);
     const [dateTime, setDateTime] = useState<DateTimeData>(getCurrentDateTime());
 
-    const notifications: NotificationType[] = [
-        { id: 1, type: 'updatedMedicine', message: 'Updated Medicine', time: '5hrs ago' },
-        { id: 2, type: 'medicineRequest', message: 'Medicine Request Received', time: '10hrs ago' },
-    ];
-
+    // Update time every second
     useEffect(() => {
         const timer = setInterval(() => {
             setDateTime(getCurrentDateTime());
@@ -50,17 +65,48 @@ const Dashboard: React.FC = () => {
     };
 
     const handleLogout = (): void => {
-        localStorage.removeItem("isLoggedIn");
-        router.visit('/');
+        router.post('/logout');
     };
 
     const toggleSidebar = () => {
         setSidebarOpen(!isSidebarOpen);
     };
 
+    // Get patient counts
+    const students = getStudents();
+    const employees = getEmployees();
+    const totalPatients = students.length + employees.length;
+
+    // Recent activity mock data
+    const recentActivities = [
+        { 
+            id: 1, 
+            patient: "Juan Dela Cruz", 
+            type: "Walk-in Consultation", 
+            time: "10:30 AM", 
+            status: "Completed" 
+        },
+        { 
+            id: 2, 
+            patient: "Maria Santos", 
+            type: "Scheduled Consultation", 
+            time: "9:15 AM", 
+            status: "Completed" 
+        },
+        { 
+            id: 3, 
+            patient: "Dr. Roberto Garcia", 
+            type: "Follow-up", 
+            time: "Yesterday", 
+            status: "Pending" 
+        }
+    ];
+
+    // NotificationBell will fetch notifications itself; no local dummy data needed
+
     return (
         <div className="flex h-screen bg-gray-100">
-            {/* Sidebar */}
+            {/* Sidebar component */}
             <Sidebar
                 isSidebarOpen={isSidebarOpen}
                 isSearchOpen={isSearchOpen}
@@ -77,19 +123,9 @@ const Dashboard: React.FC = () => {
                 {/* Header */}
                 <header className="bg-gradient-to-b from-[#3D1528] to-[#A3386C] shadow-sm border-b border-gray-200 px-7 py-3 z-10">
                     <div className="flex items-center justify-between">
-                        {/* Sidebar Toggle Button */}
-                        <button onClick={toggleSidebar} className="text-white p-2 rounded-full hover:bg-white/20">
-                            <Menu className="w-6 h-6" />
-                        </button>
-                        <div className="flex items-center">
-                            <img src="/images/Logo.png" alt="UIC Logo" className="w-15 h-15 mr-2"/>
-                            <h1 className="text-white text-[28px] font-semibold">UIC MediCare</h1>
-                        </div>
-                        {/* Notification Bell */}
-                        <NotificationBell
-                            notifications={notifications}
-                            onSeeAll={() => handleNavigation('../Notification')}
-                        />
+                        <button onClick={toggleSidebar} className="text-white p-2 rounded-full hover:bg-white/20"><Menu className="w-6 h-6" /></button>
+                    <div className="flex items-center"><img src="/images/Logo.png" alt="UIC Logo" className="w-15 h-15 mr-2"/><h1 className="text-white text-[28px] font-semibold">MEDICARE</h1></div>
+                    <div className="flex items-center"><NotificationBell onSeeAll={() => handleNavigation('../Notification')} /></div>
                     </div>
                 </header>
 
@@ -103,6 +139,48 @@ const Dashboard: React.FC = () => {
 
                     <h1 className="text-5xl font-bold text-black mb-8">Dashboard</h1>
 
+                    {/* Stats Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                        <div className="bg-white p-6 rounded-lg shadow-md border border-gray-200">
+                            <div className="flex items-center">
+                                <div className="p-3 rounded-full bg-blue-100 text-blue-600">
+                                    <Users className="w-6 h-6" />
+                                </div>
+                                <div className="ml-4">
+                                    <p className="text-2xl font-bold text-gray-800">{totalPatients}</p>
+                                    <p className="text-gray-600">Total Patients</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div className="bg-white p-6 rounded-lg shadow-md border border-gray-200">
+                            <div className="flex items-center">
+                                <div className="p-3 rounded-full bg-green-100 text-green-600">
+                                    <Stethoscope className="w-6 h-6" />
+                                </div>
+                                <div className="ml-4">
+                                    <p className="text-2xl font-bold text-gray-800">2</p>
+                                    <p className="text-gray-600">Today's Consultations</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div className="bg-white p-6 rounded-lg shadow-md border border-gray-200">
+                            <div className="flex items-center">
+                                <div className="p-3 rounded-full bg-purple-100 text-purple-600">
+                                    <Calendar className="w-6 h-6" />
+                                </div>
+                                <div className="ml-4">
+                                    <p className="text-2xl font-bold text-gray-800">1</p>
+                                    <p className="text-gray-600">Pending Appointments</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Navigation Test Section removed per user request */}
+
+                    {/* Current Consultations */}
                     <section className="mb-10">
                         <h2 className="text-2xl font-normal text-black mb-4">Current Consultations:</h2>
                         <div className="space-y-4">
@@ -117,11 +195,38 @@ const Dashboard: React.FC = () => {
                         </div>
                     </section>
 
+                    {/* Recent Activity */}
                     <section>
-                        <h2 className="text-2xl font-normal text-black mb-4">Recent Consultations:</h2>
-                        <div className="bg-white p-6 rounded-lg shadow-md border border-gray-200 h-40 flex items-center justify-center text-gray-500 italic">
-                            {/* This area can be populated with actual recent consultations data */}
-                            No recent consultations to display.
+                        <h2 className="text-2xl font-normal text-black mb-4">Recent Activity:</h2>
+                        <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
+                            <table className="min-w-full divide-y divide-gray-200">
+                                <thead className="bg-gray-50">
+                                    <tr>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Patient</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-gray-200">
+                                    {recentActivities.map((activity) => (
+                                        <tr key={activity.id} className="hover:bg-gray-50">
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{activity.patient}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{activity.type}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{activity.time}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                                    activity.status === 'Completed' 
+                                                        ? 'bg-green-100 text-green-800' 
+                                                        : 'bg-yellow-100 text-yellow-800'
+                                                }`}>
+                                                    {activity.status}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
                         </div>
                     </section>
                 </main>

@@ -1,0 +1,1006 @@
+import { supabase } from '../lib/supabaseClient';
+import { HistoryLogService } from './HistoryLogService';
+import { UserService } from './userService';
+
+export interface Branch {
+    branch_id: number;
+    branch_name: string;
+}
+
+export interface Medicine {
+    medicine_id: number;
+    medicine_name: string;
+    medicine_category: string;
+    description?: string;
+}
+
+export interface User {
+    user_id: number;
+    email: string;
+    branch_id: number;
+    name: string;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface BranchInventoryItem {
+    medicine_id: number;
+    quantity: number;
+    date_received: string;
+    expiration_date?: string;
+    medicine?: Medicine;
+    branch?: Branch;
+    medicine_stock_in_id?: number; // Added to track individual stock records
+}
+
+export interface BranchStockSummary {
+    branch_id: number;
+    branch_name: string;
+    medicine_id: number;
+    medicine_name: string;
+    medicine_category: string;
+    quantity: number;
+    low_stock_level: number;
+    is_low_stock: boolean;
+}
+
+// New interfaces for the stock in system
+export interface MedicineStockIn {
+    medicine_stock_in_id: number;
+    medicine_id: number;
+    branch_id: number;
+    user_id: number;
+    quantity: number;
+    date_received: string;
+    expiration_date?: string;
+    timestamp_dispensed?: string; // Added timestamp_dispensed field
+    medicine?: Medicine;
+    branch?: Branch;
+    user?: User;
+}
+
+export interface MedicineStockOut {
+    medicine_stock_out_id: number;
+    medicine_stock_in_id: number;
+    quantity_dispensed: number;
+    user_id: number;
+    timestamp_dispensed: string;
+    branch_id: number;
+    medicine_stock_in?: MedicineStockIn;
+    branch?: Branch;
+    user?: User;
+}
+
+export interface MedicineDeleted {
+    medicine_deleted_id: number;
+    medicine_stock_in_id: number;
+    user_id?: number; // Made optional to match the current implementation
+    branch_id: number;
+    quantity: number;
+    description?: string;
+    deleted_at: string;
+    medicine_stock_in?: MedicineStockIn;
+    user?: User;
+}
+
+export class BranchInventoryService {
+    
+    // Get all branches (MSSQL version)
+    static async getAllBranches(): Promise<Branch[]> {
+        try {
+            const response = await fetch('/api/branches', {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            return data || [];
+        } catch (error) {
+            console.error('Error fetching branches:', error);
+            return [];
+        }
+    }
+
+    // Get other branches (excluding user's branch)
+    static async getOtherBranches(userBranchId: number): Promise<Branch[]> {
+        try {
+            const response = await fetch(`/api/branches/other/${userBranchId}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            return data || [];
+        } catch (error) {
+            console.error('Error fetching other branches:', error);
+            return [];
+        }
+    }
+
+    // Get all medicines
+    // Get all medicines (MSSQL version)
+    static async getAllMedicines(): Promise<Medicine[]> {
+        try {
+            const response = await fetch('/api/medicines', {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            return data || [];
+        } catch (error) {
+            console.error('Error fetching medicines:', error);
+            return [];
+        }
+    }
+
+    // @deprecated - Legacy Supabase function - use MSSQL API instead
+    static async getUserById(userId: number): Promise<User | null> {
+        console.warn('BranchInventoryService.getUserById is deprecated. Use appropriate API endpoint instead.');
+        // TODO: Replace with MSSQL API call
+        return null;
+    }
+
+    // Get inventory for a specific branch using medicine_stock_in table (shows separate entries for each stock record)
+    // Get branch inventory (MSSQL version)
+    static async getBranchInventory(branchId: number): Promise<BranchInventoryItem[]> {
+        try {
+            const response = await fetch(`/api/branches/${branchId}/inventory`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            return data || [];
+        } catch (error) {
+            console.error('Error fetching branch inventory:', error);
+            return [];
+        }
+    }
+
+    // Get user's branch inventory
+    static async getUserBranchInventory(userId: number): Promise<BranchInventoryItem[]> {
+        try {
+            // Get user by user_id to find their branch
+            const user = await this.getUserById(userId);
+            
+            if (!user?.branch_id) {
+                throw new Error('User is not assigned to any branch');
+            }
+
+            return await this.getBranchInventory(user.branch_id);
+        } catch (error) {
+            console.error('Error fetching user branch inventory:', error);
+            return [];
+        }
+    }
+
+    // Get user's branch info
+    // Get user branch info (MSSQL version)
+    static async getUserBranchInfo(userId: number): Promise<Branch | null> {
+        try {
+            // Since UserService already has the branch info, let's use it directly
+            const currentUser = UserService.getCurrentUser();
+            if (currentUser && currentUser.branch_id && currentUser.branch_name) {
+                const branchInfo: Branch = {
+                    branch_id: typeof currentUser.branch_id === 'string' ? parseInt(currentUser.branch_id) : currentUser.branch_id,
+                    branch_name: currentUser.branch_name
+                };
+                return branchInfo;
+            }
+
+            // Fallback: fetch from API if needed
+            const response = await fetch(`/api/users/${userId}/branch`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            return data;
+        } catch (error) {
+            console.error('Error fetching user branch info:', error);
+            return null;
+        }
+    }
+
+    // Get stock summary for all branches using medicine_stock_in
+    static async getAllBranchesStockSummary(): Promise<BranchStockSummary[]> {
+        try {
+            // Get all branches
+            const branches = await this.getAllBranches();
+            const summary: BranchStockSummary[] = [];
+
+            for (const branch of branches) {
+                const inventory = await this.getBranchInventory(branch.branch_id);
+                
+                inventory.forEach(item => {
+                    const lowStockLevel = 50; // Default reorder level
+                    
+                    summary.push({
+                        branch_id: branch.branch_id,
+                        branch_name: branch.branch_name,
+                        medicine_id: item.medicine_id,
+                        medicine_name: item.medicine?.medicine_name || 'Unknown Medicine',
+                        medicine_category: item.medicine?.medicine_category || 'Unknown',
+                        quantity: item.quantity,
+                        low_stock_level: lowStockLevel,
+                        is_low_stock: item.quantity <= lowStockLevel
+                    });
+                });
+            }
+
+            return summary;
+
+        } catch (error) {
+            console.error('Error fetching stock summary:', error);
+            return [];
+        }
+    }
+
+    // Get low stock medicines for a branch
+    static async getLowStockMedicines(branchId: number): Promise<BranchStockSummary[]> {
+        try {
+            const inventory = await this.getBranchInventory(branchId);
+            const lowStockLevel = 50; // Default reorder level
+            
+            // Get branch info for the branch name
+            const { data: branchData } = await supabase
+                .from('branches')
+                .select('branch_name')
+                .eq('branch_id', branchId)
+                .single();
+
+            return inventory
+                .filter(item => item.quantity <= lowStockLevel)
+                .map(item => ({
+                    branch_id: branchId,
+                    branch_name: branchData?.branch_name || 'Unknown Branch',
+                    medicine_id: item.medicine_id,
+                    medicine_name: item.medicine?.medicine_name || 'Unknown Medicine',
+                    medicine_category: item.medicine?.medicine_category || 'Unknown',
+                    quantity: item.quantity,
+                    low_stock_level: lowStockLevel,
+                    is_low_stock: true
+                }));
+
+        } catch (error) {
+            console.error('Error fetching low stock medicines:', error);
+            return [];
+        }
+    }
+
+    // Create a new medicine if it doesn't exist
+    static async createMedicine(
+        medicineName: string,
+        medicineCategory: string,
+        description?: string
+    ): Promise<Medicine | null> {
+        try {
+            console.log('CreateMedicine called with:', { medicineName, medicineCategory, description });
+            
+            const response = await fetch('/api/medicines', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: JSON.stringify({
+                    medicine_name: medicineName,
+                    medicine_category: medicineCategory
+                }),
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const medicine = await response.json();
+            console.log('Successfully created/retrieved medicine:', medicine);
+            return medicine;
+            
+        } catch (error) {
+            console.error('Error creating medicine:', error);
+            return null;
+        }
+    }
+
+    // ===== NEW STOCK IN/OUT METHODS =====
+
+    // Add medicine stock using the new medicine_stock_in table
+    static async addMedicineStockIn(
+        medicineId: number,
+        branchId: number,
+        userId: number,
+        quantity: number,
+        dateReceived?: string,
+        expirationDate?: string
+    ): Promise<MedicineStockIn | null> {
+        try {
+            console.log('Adding medicine stock in:', { medicineId, branchId, userId, quantity, dateReceived, expirationDate });
+
+            // Ensure dates are provided - if not, use current date and a default expiration
+            const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+            const defaultExpirationDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 1 year from now
+
+            const requestData = {
+                medicine_id: medicineId,
+                branch_id: branchId,
+                user_id: userId,
+                quantity: quantity,
+                date_received: dateReceived || currentDate,
+                expiration_date: expirationDate || defaultExpirationDate
+            };
+
+            console.log('Request data being sent:', requestData);
+
+            const response = await fetch('/api/medicine-stock-in', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: JSON.stringify(requestData),
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('API response error:', errorText);
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const stockRecord = await response.json();
+            console.log('Successfully added medicine stock in:', stockRecord);
+            return stockRecord;
+            
+        } catch (error) {
+            console.error('Error in addMedicineStockIn:', error);
+            return null;
+        }
+    }
+
+    // Fallback method that returns a mock response since we're only using medicine_stock_in now
+    private static async fallbackAddStock(
+        medicineId: number,
+        branchId: number,
+        quantity: number,
+        dateReceived?: string,
+        expirationDate?: string
+    ): Promise<MedicineStockIn | null> {
+        try {
+            console.log('Fallback method called - medicine_stock_in table should be used instead');
+            // Return null to indicate fallback failed - should use medicine_stock_in table
+            return null;
+        } catch (error) {
+            console.error('Error in fallback method:', error);
+            return null;
+        }
+    }
+
+    // Get all stock in records for a branch
+    static async getBranchStockInRecords(branchId: number): Promise<MedicineStockIn[]> {
+        try {
+            const { data, error } = await supabase
+                .from('medicine_stock_in')
+                .select(`
+                    *,
+                    medicine:medicines(*),
+                    branch:branches(*),
+                    user:users(*)
+                `)
+                .eq('branch_id', branchId)
+                .order('timestamp_dispensed', { ascending: false }); // Order by timestamp_dispensed for better chronological order
+
+            if (error) throw error;
+            return data || [];
+        } catch (error) {
+            console.error('Error fetching branch stock in records:', error);
+            return [];
+        }
+    }
+
+    // Get all stock out records for a branch
+    static async getBranchStockOutRecords(branchId: number): Promise<MedicineStockOut[]> {
+        try {
+            const { data, error } = await supabase
+                .from('medicine_stock_out')
+                .select(`
+                    *,
+                    medicine_stock_in:medicine_stock_in(
+                        *,
+                        medicine:medicines(*)
+                    ),
+                    branch:branches(*),
+                    user:users(*)
+                `)
+                .eq('branch_id', branchId)
+                .order('timestamp_dispensed', { ascending: false });
+
+            if (error) throw error;
+            return data || [];
+        } catch (error) {
+            console.error('Error fetching branch stock out records:', error);
+            return [];
+        }
+    }
+
+    // Get current available quantity for a medicine in a branch (stock in minus stock out)
+    static async getCurrentStockQuantity(medicineId: number, branchId: number): Promise<number> {
+        try {
+            // Get all stock in records for this medicine and branch
+            const { data: stockInData, error: stockInError } = await supabase
+                .from('medicine_stock_in')
+                .select('medicine_stock_in_id, quantity')
+                .eq('medicine_id', medicineId)
+                .eq('branch_id', branchId);
+
+            if (stockInError) {
+                console.error('Error fetching stock in data:', stockInError);
+                return 0;
+            }
+
+            if (!stockInData || stockInData.length === 0) {
+                return 0;
+            }
+
+            // Calculate total available by subtracting dispensed amounts from each stock in record
+            let totalAvailable = 0;
+
+            for (const stockIn of stockInData) {
+                // Get total dispensed for this stock in record
+                const { data: stockOutData, error: stockOutError } = await supabase
+                    .from('medicine_stock_out')
+                    .select('quantity_dispensed')
+                    .eq('medicine_stock_in_id', stockIn.medicine_stock_in_id);
+
+                if (stockOutError) {
+                    console.error('Error fetching stock out data:', stockOutError);
+                    continue;
+                }
+
+                // Get total deleted for this stock in record
+                const { data: deletedData, error: deletedError } = await supabase
+                    .from('medicine_deleted')
+                    .select('quantity')
+                    .eq('medicine_stock_in_id', stockIn.medicine_stock_in_id);
+
+                if (deletedError) {
+                    console.error('Error fetching deleted data:', deletedError);
+                    continue;
+                }
+
+                const totalDispensed = stockOutData?.reduce((sum, record) => sum + record.quantity_dispensed, 0) || 0;
+                const totalDeleted = deletedData?.reduce((sum, record) => sum + record.quantity, 0) || 0;
+                const available = stockIn.quantity - totalDispensed - totalDeleted;
+                totalAvailable += Math.max(0, available); // Don't allow negative quantities
+            }
+
+            return totalAvailable;
+        } catch (error) {
+            console.error('Error getting current stock quantity:', error);
+            return 0;
+        }
+    }
+
+    // Find available stock in records for dispensing (FIFO - First In, First Out)
+    static async getAvailableStockInRecords(medicineId: number, branchId: number): Promise<{
+        stockInId: number;
+        availableQuantity: number;
+    }[]> {
+        try {
+            const response = await fetch(`/api/medicine-stock-records/${medicineId}/${branchId}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const availableRecords = await response.json();
+            console.log('Available stock records:', availableRecords);
+            return availableRecords;
+            
+        } catch (error) {
+            console.error('Error fetching available stock records:', error);
+            return [];
+        }
+    }
+
+    // Dispense medicine by medicine_id (finds appropriate stock_in records automatically)
+    static async dispenseMedicineByMedicineId(
+        medicineId: number,
+        branchId: number,
+        userId: number,
+        quantityToDispense: number,
+        patientName: string,
+        prescribedBy: string
+    ): Promise<boolean> {
+        try {
+            console.log('Dispensing medicine by medicine ID:', { medicineId, branchId, userId, quantityToDispense });
+
+            // Get available stock in records (FIFO order)
+            const availableRecords = await this.getAvailableStockInRecords(medicineId, branchId);
+            
+            if (availableRecords.length === 0) {
+                throw new Error('No available stock for this medicine');
+            }
+
+            // Check if total available quantity is sufficient
+            const totalAvailable = availableRecords.reduce((sum, record) => sum + record.availableQuantity, 0);
+            if (totalAvailable < quantityToDispense) {
+                throw new Error(`Insufficient stock. Available: ${totalAvailable}, Requested: ${quantityToDispense}`);
+            }
+
+            // Dispense from stock in records (FIFO)
+            let remainingToDispense = quantityToDispense;
+            const dispensalPromises = [];
+
+            for (const record of availableRecords) {
+                if (remainingToDispense <= 0) break;
+
+                const quantityFromThisRecord = Math.min(remainingToDispense, record.availableQuantity);
+                
+                // Create stock out record
+                const dispensalPromise = this.dispenseMedicineStockOut(
+                    record.stockInId,
+                    quantityFromThisRecord,
+                    patientName || 'Unknown Patient',
+                    prescribedBy || 'Unknown Doctor',
+                    userId,
+                    branchId
+                );
+                
+                dispensalPromises.push(dispensalPromise);
+                remainingToDispense -= quantityFromThisRecord;
+            }
+
+            // Wait for all dispensals to complete
+            const results = await Promise.all(dispensalPromises);
+            
+            // Check if all dispensals were successful
+            const allSuccessful = results.every(result => result !== null);
+            
+            if (!allSuccessful) {
+                throw new Error('Some dispensals failed');
+            }
+
+            console.log('Successfully dispensed medicine using multiple stock in records');
+            return true;
+        } catch (error) {
+            console.error('Error in dispenseMedicineByMedicineId:', error);
+            return false;
+        }
+    }
+
+    // Delete medicine by medicine_id (finds appropriate stock_in records automatically)
+    static async deleteMedicineByMedicineId(
+        medicineId: number,
+        branchId: number,
+        quantityToDelete: number,
+        description: string,
+        userId?: number
+    ): Promise<boolean> {
+        try {
+            console.log('deleteMedicineByMedicineId called with:', { 
+                medicineId, 
+                branchId, 
+                quantityToDelete, 
+                description, 
+                userId 
+            });
+
+            // Get available stock in records (FIFO order)
+            const availableRecords = await this.getAvailableStockInRecords(medicineId, branchId);
+            console.log('Available stock records:', availableRecords);
+            
+            if (availableRecords.length === 0) {
+                console.error('No available stock for this medicine');
+                throw new Error('No available stock for this medicine');
+            }
+
+            // Check if total available quantity is sufficient
+            const totalAvailable = availableRecords.reduce((sum, record) => sum + record.availableQuantity, 0);
+            console.log('Total available quantity:', totalAvailable, 'Requested to delete:', quantityToDelete);
+            
+            if (totalAvailable < quantityToDelete) {
+                console.error(`Insufficient stock to delete. Available: ${totalAvailable}, Requested: ${quantityToDelete}`);
+                throw new Error(`Insufficient stock to delete. Available: ${totalAvailable}, Requested: ${quantityToDelete}`);
+            }
+
+            // Delete from stock in records (FIFO)
+            let remainingToDelete = quantityToDelete;
+            const deletionPromises = [];
+
+            for (const record of availableRecords) {
+                if (remainingToDelete <= 0) break;
+
+                const quantityFromThisRecord = Math.min(remainingToDelete, record.availableQuantity);
+                console.log(`Deleting ${quantityFromThisRecord} from stock record ${record.stockInId}`);
+                
+                // Create deletion record in medicine_deleted table
+                const deletionPromise = this.deleteMedicine(
+                    record.stockInId,
+                    quantityFromThisRecord,
+                    description,
+                    userId || 0 // Pass userId to track who deleted (default to 0 if undefined)
+                );
+                
+                deletionPromises.push(deletionPromise);
+                remainingToDelete -= quantityFromThisRecord;
+            }
+
+            console.log('Executing deletion promises...');
+            // Wait for all deletions to complete
+            const results = await Promise.all(deletionPromises);
+            console.log('Deletion results:', results);
+            
+            // Check if all deletions were successful (now expecting boolean results)
+            const allSuccessful = results.every(result => result === true);
+            
+            if (!allSuccessful) {
+                console.error('Some deletions failed:', results);
+                const failedCount = results.filter(result => result !== true).length;
+                throw new Error(`${failedCount} deletion(s) failed out of ${results.length} total operations`);
+            }
+
+            console.log('Successfully deleted medicine using multiple stock in records');
+            console.log(`Added ${results.length} record(s) to medicine_deleted table`);
+            return true;
+        } catch (error) {
+            console.error('Error in deleteMedicineByMedicineId:', error);
+            return false;
+        }
+    }
+
+    // Get all deleted medicine records with proper filtering
+    static async getDeletedMedicineRecords(branchId?: number, userId?: number): Promise<MedicineDeleted[]> {
+        try {
+            let query = supabase
+                .from('medicine_deleted')
+                .select(`
+                    *,
+                    medicine_stock_in:medicine_stock_in(
+                        *,
+                        medicine:medicines(*),
+                        branch:branches(*)
+                    ),
+                    user:users(user_id, name, email)
+                `)
+                .order('deleted_at', { ascending: false });
+
+            // Filter by branch if branchId is provided
+            if (branchId) {
+                query = query.eq('branch_id', branchId);
+            }
+
+            // Filter by user if userId is provided
+            if (userId) {
+                query = query.eq('user_id', userId);
+            }
+
+            const { data, error } = await query;
+
+            if (error) {
+                console.error('Error fetching deleted medicine records:', error);
+                throw error;
+            }
+
+            console.log('Fetched deleted medicine records:', data);
+            return data || [];
+        } catch (error) {
+            console.error('Error fetching deleted medicine records:', error);
+            return [];
+        }
+    }
+
+    // Get deleted medicine records for a specific user
+    static async getUserDeletedMedicineRecords(userId: number): Promise<MedicineDeleted[]> {
+        return this.getDeletedMedicineRecords(undefined, userId);
+    }
+
+    // Test function to verify medicine_deleted table structure
+    static async testMedicineDeletedTable(): Promise<void> {
+        try {
+            console.log('=== TESTING MEDICINE_DELETED TABLE ===');
+            
+            // Test 1: Check if table exists and is accessible
+            const { data: testSelect, error: selectError } = await supabase
+                .from('medicine_deleted')
+                .select('*')
+                .limit(1);
+                
+            if (selectError) {
+                console.error('❌ medicine_deleted table SELECT test failed:', selectError);
+                throw new Error(`medicine_deleted table is not accessible: ${selectError.message}`);
+            }
+            
+            console.log('✅ medicine_deleted table SELECT test passed');
+            console.log('Existing records (first 1):', testSelect);
+            
+            // Test 2: Check table schema by describing columns
+            const { data: columns, error: schemaError } = await supabase.rpc('get_table_columns', {
+                table_name: 'medicine_deleted'
+            });
+            
+            if (schemaError) {
+                console.log('⚠️ Could not get table schema (this is okay):', schemaError.message);
+            } else {
+                console.log('✅ Table schema:', columns);
+            }
+            
+            console.log('=== MEDICINE_DELETED TABLE TEST COMPLETE ===');
+            
+        } catch (error) {
+            console.error('❌ medicine_deleted table test failed:', error);
+            throw error;
+        }
+    }
+
+    // Delete medicine record - simplified version
+    static async deleteMedicine(
+        medicineStockInId: number, 
+        quantityToDelete: number, 
+        reason: string, 
+        deletedBy: number
+    ): Promise<boolean> {
+        console.log('🗑️ Starting simplified deleteMedicine process...');
+        console.log('Parameters:', { medicineStockInId, quantityToDelete, reason, deletedBy });
+
+        try {
+            // Get the stock record first to validate it exists
+            console.log('🔍 Step 1: Fetching stock record for validation...');
+            const { data: stockRecord, error: stockError } = await supabase
+                .from('medicine_stock_in')
+                .select(`
+                    medicine_stock_in_id,
+                    medicine_id,
+                    branch_id,
+                    quantity,
+                    medicine:medicines(medicine_name)
+                `)
+                .eq('medicine_stock_in_id', medicineStockInId)
+                .single();
+
+            if (stockError) {
+                console.error('❌ Error fetching stock record:', stockError);
+                console.error('Stock error details:', stockError);
+                return false;
+            }
+
+            if (!stockRecord) {
+                console.error('❌ Stock record not found for ID:', medicineStockInId);
+                return false;
+            }
+
+            console.log('✅ Stock record found:', {
+                id: stockRecord.medicine_stock_in_id,
+                medicine_name: Array.isArray(stockRecord.medicine) 
+                    ? stockRecord.medicine[0]?.medicine_name 
+                    : (stockRecord.medicine as any)?.medicine_name,
+                current_quantity: stockRecord.quantity
+            });
+
+            // Simple approach: Just delete the stock record
+            console.log('🔍 Step 2: Deleting stock record...');
+            const { error: deleteError } = await supabase
+                .from('medicine_stock_in')
+                .delete()
+                .eq('medicine_stock_in_id', medicineStockInId);
+
+            if (deleteError) {
+                console.error('❌ Error deleting stock record:', deleteError);
+                console.error('Delete error details:', deleteError);
+                return false;
+            }
+
+            console.log('✅ Stock record deleted successfully');
+            
+            // Optional: Try to log the deletion if medicine_deleted table exists
+            try {
+                console.log('🔍 Step 3: Attempting to log deletion...');
+                const deletionRecord = {
+                    medicine_id: stockRecord.medicine_id,
+                    medicine_name: Array.isArray(stockRecord.medicine) 
+                        ? stockRecord.medicine[0]?.medicine_name || 'Unknown Medicine'
+                        : (stockRecord.medicine as any)?.medicine_name || 'Unknown Medicine',
+                    branch_id: stockRecord.branch_id,
+                    quantity_deleted: quantityToDelete,
+                    original_stock_id: stockRecord.medicine_stock_in_id,
+                    reason_for_deletion: reason,
+                    deleted_by: deletedBy,
+                    timestamp_deleted: new Date().toISOString()
+                };
+
+                const { data: deletedData, error: logError } = await supabase
+                    .from('medicine_deleted')
+                    .insert(deletionRecord)
+                    .select()
+                    .single();
+
+                if (logError) {
+                    console.warn('⚠️ Could not log deletion (table may not exist):', logError.message);
+                    // Don't fail the deletion just because logging failed
+                } else {
+                    console.log('✅ Deletion logged successfully');
+                    
+                    // Log to history_log table
+                    if (deletedData?.medicine_deleted_id) {
+                        const historyLogged = await HistoryLogService.logMedicineRemoval(
+                            deletedBy,
+                            deletedData.medicine_deleted_id,
+                            `Removed ${quantityToDelete} units of ${deletionRecord.medicine_name}. Reason: ${reason}`
+                        );
+                        
+                        if (historyLogged) {
+                            console.log('✅ Medicine removal logged to history_log');
+                        } else {
+                            console.warn('⚠️ Failed to log medicine removal to history_log');
+                        }
+                    }
+                }
+            } catch (logError) {
+                console.warn('⚠️ Deletion logging failed:', logError);
+                // Continue anyway - the main deletion was successful
+            }
+
+            console.log('🎉 Medicine deletion completed successfully!');
+            return true;
+
+        } catch (error) {
+            console.error('❌ Unexpected error in deleteMedicine:', error);
+            console.error('Error details:', error);
+            return false;
+        }
+    }
+
+    // Add medicine to stock with history logging (this is restocking, not adding new medicine types)
+    static async addMedicineToStock(
+        medicineId: number,
+        branchId: number,
+        quantity: number,
+        lotNumber: string,
+        expirationDate: string,
+        supplierId: number,
+        dateReceived: string,
+        userId: number
+    ): Promise<boolean> {
+        try {
+            console.log('➕ Adding medicine stock (restocking) with history logging...');
+            
+            const { data: stockInData, error: stockInError } = await supabase
+                .from('medicine_stock_in')
+                .insert({
+                    medicine_id: medicineId,
+                    branch_id: branchId,
+                    quantity: quantity,
+                    lot_number: lotNumber,
+                    expiration_date: expirationDate,
+                    supplier_id: supplierId,
+                    date_received: dateReceived,
+                    timestamp_added: new Date().toISOString()
+                })
+                .select(`
+                    *,
+                    medicine:medicines(medicine_name)
+                `)
+                .single();
+
+            if (stockInError) {
+                console.error('❌ Error adding medicine stock:', stockInError);
+                return false;
+            }
+
+            console.log('✅ Medicine stock added successfully');
+
+            // Log to history_log table as RESTOCK (not ADD)
+            if (stockInData?.medicine_stock_in_id) {
+                const medicineName = Array.isArray(stockInData.medicine) 
+                    ? stockInData.medicine[0]?.medicine_name 
+                    : (stockInData.medicine as any)?.medicine_name;
+
+                const historyLogged = await HistoryLogService.logMedicineRestock(
+                    userId,
+                    stockInData.medicine_stock_in_id,
+                    `Restocked ${quantity} units of ${medicineName || 'Unknown Medicine'} (Lot: ${lotNumber})`
+                );
+                
+                if (historyLogged) {
+                    console.log('✅ Medicine restock logged to history_log');
+                } else {
+                    console.warn('⚠️ Failed to log medicine restock to history_log');
+                }
+            }
+
+            return true;
+        } catch (error) {
+            console.error('❌ Unexpected error adding medicine stock:', error);
+            return false;
+        }
+    }
+
+    // Dispense medicine with history logging - using MSSQL API
+    static async dispenseMedicineStockOut(
+        medicineStockInId: number,
+        quantityDispensed: number,
+        patientName: string,
+        prescribedBy: string,
+        userId: number,
+        branchId: number
+    ): Promise<boolean> {
+        try {
+            console.log('💊 Dispensing medicine with history logging...');
+            
+            const response = await fetch('/api/medicine-dispense', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+                },
+                body: JSON.stringify({
+                    medicine_stock_in_id: medicineStockInId,
+                    quantity_dispensed: quantityDispensed,
+                    patient_name: patientName,
+                    prescribed_by: prescribedBy,
+                    user_id: userId,
+                    branch_id: branchId
+                })
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                console.error('❌ Error dispensing medicine:', result.error || result.message);
+                return false;
+            }
+
+            console.log('✅ Medicine dispensed successfully:', result);
+            return true;
+        } catch (error) {
+            console.error('❌ Unexpected error dispensing medicine:', error);
+            return false;
+        }
+    }
+
+    // Get deleted medicine records for a branch and user
+    static async getBranchUserDeletedMedicineRecords(branchId: number, userId: number): Promise<MedicineDeleted[]> {
+        return this.getDeletedMedicineRecords(branchId, userId);
+    }
+}

@@ -1,0 +1,65 @@
+﻿{
+    "value":  [
+                  {
+                      "medicine_id":  "35",
+                      "quantity":  150,
+                      "date_received":  "2025-10-02",
+                      "expiration_date":  "2025-10-16",
+                      "medicine_stock_in_id":  "52",
+                      "medicine":  {
+                                       "medicine_id":  "35",
+                                       "medicine_name":  "PARACETAMOL 500mg",
+                                       "medicine_category":  "Pain Relief"
+                                   }
+                  },
+                  {
+                      "medicine_id":  "35",
+                      "quantity":  80,
+                      "date_received":  "2025-10-02",
+                      "expiration_date":  "2025-10-20",
+                      "medicine_stock_in_id":  "53",
+                      "medicine":  {
+                                       "medicine_id":  "35",
+                                       "medicine_name":  "PARACETAMOL 500mg",
+                                       "medicine_category":  "Pain Relief"
+                                   }
+                  },
+                  {
+                      "medicine_id":  "36",
+                      "quantity":  95,
+                      "date_received":  "2025-10-02",
+                      "expiration_date":  "2025-10-15",
+                      "medicine_stock_in_id":  "54",
+                      "medicine":  {
+                                       "medicine_id":  "36",
+                                       "medicine_name":  "SARIDON 300mg",
+                                       "medicine_category":  "Pain Relief"
+                                   }
+                  },
+                  {
+                      "medicine_id":  "37",
+                      "quantity":  100,
+                      "date_received":  "2025-10-03",
+                      "expiration_date":  "2025-10-10",
+                      "medicine_stock_in_id":  "55",
+                      "medicine":  {
+                                       "medicine_id":  "37",
+                                       "medicine_name":  "ALAXAN 200mg",
+                                       "medicine_category":  "Supplements"
+                                   }
+                  },
+                  {
+                      "medicine_id":  "38",
+                      "quantity":  47,
+                      "date_received":  "2025-10-04",
+                      "expiration_date":  "2025-10-13",
+                      "medicine_stock_in_id":  "56",
+                      "medicine":  {
+                                       "medicine_id":  "38",
+                                       "medicine_name":  "BIOFLU 500mg",
+                                       "medicine_category":  "Pain Relief"
+                                   }
+                  }
+              ],
+    "Count":  5
+}
