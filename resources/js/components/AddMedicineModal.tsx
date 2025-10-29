@@ -8,6 +8,7 @@ interface AddMedicineModalProps {
     onAddMedicine: (medicineData: MedicineFormData) => void;
     branchName?: string;
     medicineOptions?: string[]; // list of existing medicine names for the datalist
+    usesOptions?: string[]; // list of existing uses/categories for the datalist
 }
 
 interface MedicineFormData {
@@ -31,7 +32,8 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({
     setIsOpen,
     onAddMedicine,
     branchName,
-    medicineOptions = []
+    medicineOptions = [],
+    usesOptions = []
 }) => {
     const [formData, setFormData] = useState<MedicineFormData>(initialFormData);
     const [errors, setErrors] = useState<Record<string, string>>({});
@@ -42,6 +44,11 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({
     const uniqueMedicineOptions = React.useMemo(() => {
         return Array.from(new Set(medicineOptions)).sort((a, b) => a.localeCompare(b));
     }, [medicineOptions]);
+
+    // Remove duplicates from uses options and sort alphabetically
+    const uniqueUsesOptions = React.useMemo(() => {
+        return Array.from(new Set(usesOptions)).sort((a, b) => a.localeCompare(b));
+    }, [usesOptions]);
 
     // Reset form when modal opens
     useEffect(() => {
@@ -70,12 +77,7 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({
 
     const { date, time } = getCurrentDateTime();
 
-    // Medicine categories
-    const categories = [
-        'Pain Relief', 'Antibiotic', 'Anti-inflammatory', 'Antihistamine', 'Antacid',
-        'Cardioprotective', 'Bronchodilator', 'Diabetes', 'Hypertension', 'Antiseptic',
-        'First Aid', 'Rehydration', 'Cough Relief', 'Supplements', 'Emergency', 'Medical Device'
-    ];
+    // Removed medicine categories array - now using dynamic uses list
 
     const handleInputChange = (field: keyof MedicineFormData, value: string | number) => {
         setFormData(prev => ({ ...prev, [field]: value }));
@@ -91,7 +93,7 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({
     const validateForm = (): boolean => {
         const newErrors: Record<string, string> = {};
         if (!formData.medicineName.trim()) newErrors.medicineName = 'Medicine name is required';
-        if (!formData.category) newErrors.category = 'Category is required';
+        if (!formData.category.trim()) newErrors.category = 'Uses is required';
         if (!formData.dateReceived) newErrors.dateReceived = 'Date received is required';
         if (!formData.expirationDate) {
             newErrors.expirationDate = 'Expiration date is required';
@@ -183,17 +185,22 @@ const AddMedicineModal: React.FC<AddMedicineModalProps> = ({
                                         </datalist>
                                         {errors.medicineName && <p className="text-red-500 text-xs mt-1">{errors.medicineName}</p>}
                                     </div>
-                                    {/* Category */}
+                                    {/* Uses (formerly Category) */}
                                     <div>
-                                        <label className="block text-gray-700 text-xs font-medium mb-1 uppercase tracking-wider">Category</label>
-                                        <select
+                                        <label className="block text-gray-700 text-xs font-medium mb-1 uppercase tracking-wider">Uses</label>
+                                        {/* Typable input using datalist so user can type or pick existing uses */}
+                                        <input
+                                            list="uses-options"
                                             value={formData.category}
                                             onChange={(e) => handleInputChange('category', e.target.value)}
                                             className={`w-full px-3 py-2 border-0 border-b-2 ${errors.category ? 'border-red-500' : 'border-gray-300 focus:border-[#A3386C]'} bg-transparent focus:outline-none transition-colors text-black text-sm`}
-                                        >
-                                            <option value="">Select category</option>
-                                            {categories.map((cat) => (<option key={cat} value={cat}>{cat}</option>))}
-                                        </select>
+                                            placeholder="Enter or select uses"
+                                        />
+                                        <datalist id="uses-options">
+                                            {uniqueUsesOptions.map((use, idx) => (
+                                                <option key={`${use}-${idx}`} value={use} />
+                                            ))}
+                                        </datalist>
                                         {errors.category && <p className="text-red-500 text-xs mt-1">{errors.category}</p>}
                                     </div>
                                     {/* Date Received & Expiration Date (Side-by-side) */}

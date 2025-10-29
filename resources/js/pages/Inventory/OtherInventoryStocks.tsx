@@ -44,6 +44,10 @@ const OtherBranchInventoryPage: React.FC = () => {
     // State to show request modal
     const [isRequestModalOpen, setRequestModalOpen] = useState(false);
 
+    // Pagination state
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 6;
+
     
     // NotificationBell will fetch notifications itself. We still keep pendingRequests state here
     // and provide approve/reject handlers to the bell so it can trigger actions when needed.
@@ -65,6 +69,15 @@ const OtherBranchInventoryPage: React.FC = () => {
 
                 // Get other branch inventory from backend (MSSQL)
                 const otherInventory = await BranchInventoryService.getBranchInventory(branchId);
+                console.debug('Raw otherInventory from API:', otherInventory.slice(0, 3)); // Log first 3 records
+
+                // Fetch medicine master data to enrich inventory with names
+                const allMedicines = await BranchInventoryService.getAllMedicines();
+                const medicineMap = new Map<number, any>();
+                allMedicines.forEach(med => {
+                    medicineMap.set(Number(med.medicine_id), med);
+                });
+                console.debug('Medicine map size:', medicineMap.size);
 
                 // Load pending requests for current user's branch (requests directed to this branch)
                 try {
@@ -110,10 +123,16 @@ const OtherBranchInventoryPage: React.FC = () => {
                     // fallback to id-based grouping when name is missing. Sum quantities, take latest date_received, earliest expiration_date.
                     const agg = new Map<string, any>();
                     otherInventory.forEach((row: any) => {
-                        const rawName = (row.medicine_name || row.name || '').toString();
+                        const id = Number(row.medicine_id || 0);
+                        
+                        // Get medicine details from medicine map
+                        const medicineDetails = medicineMap.get(id);
+                        const actualName = medicineDetails?.medicine_name || row.medicine_name || row.name || '';
+                        const actualCategory = medicineDetails?.medicine_category || row.category || row.medicine_category || '';
+                        
+                        const rawName = actualName.toString();
                         const normalized = normalizeName(rawName);
                         const nameKey = normalized ? `name:${normalized}` : null;
-                        const id = Number(row.medicine_id || 0);
                         const key = nameKey || `id:${id}`;
 
                         const qty = Number(row.quantity ?? row.remaining_stock ?? 0);
@@ -125,14 +144,14 @@ const OtherBranchInventoryPage: React.FC = () => {
                             entry = {
                                 medicine_ids: new Set<number>(),
                                 medicine_id: id > 0 ? id : 0,
-                                medicine_name: rawName || row.medicine_name || '',
+                                medicine_name: rawName,
                                 categories: new Set<string>(),
-                                category: row.category || row.medicine_category || '',
+                                category: actualCategory,
                                 quantity: qty,
                                 date_received: dateReceived,
                                 expiration_date: expiry,
                             };
-                            const cat = (row.category || row.medicine_category || '').toString().trim();
+                            const cat = actualCategory.toString().trim();
                             if (cat) entry.categories.add(cat);
                             if (id > 0) entry.medicine_ids.add(id);
                             agg.set(key, entry);
@@ -149,7 +168,7 @@ const OtherBranchInventoryPage: React.FC = () => {
                                 else if (new Date(expiry) < new Date(entry.expiration_date)) entry.expiration_date = expiry;
                             }
                             // collect categories, even if different
-                            const cat = (row.category || row.medicine_category || '').toString().trim();
+                            const cat = actualCategory.toString().trim();
                             if (cat) entry.categories.add(cat);
                             // update displayed category: if multiple categories exist, mark as 'Multiple'
                             if (entry.categories.size > 1) entry.category = 'Multiple';
@@ -171,6 +190,7 @@ const OtherBranchInventoryPage: React.FC = () => {
                         user_id: 0
                     } as BranchInventoryItem));
 
+                    console.debug('Aggregated medicines:', aggregated.map(m => ({ name: m.medicine_name, category: m.category, qty: m.quantity })));
                     setMedicines(aggregated);
 
                 // Build sets of medicine ids and names the user has in their branch (coerce ids to Number)
@@ -253,12 +273,65 @@ const OtherBranchInventoryPage: React.FC = () => {
 
 
     const getFilteredAndSortedMedicines = (): BranchInventoryItem[] => {
-        let processed = medicines.filter(med => {
-            const name = (med.medicine_name || '').toString().toLowerCase();
-            const category = (med.category || '').toString().toLowerCase();
-            return name.includes(searchTerm.toLowerCase()) || category.includes(searchTerm.toLowerCase());
+        console.log('Medicines data:', medicines);
+        
+        const filtered = medicines.filter((record: BranchInventoryItem) => {
+            console.log('Processing record:', record);
+            
+            // Show all medicines including those with 0 quantity
+            const hasQuantity = (record.quantity || 0) >= 0;
+            console.log('Has quantity:', hasQuantity, 'Quantity:', record.quantity);
+            
+            // If no search term, show all records (including 0 quantity)
+            if (!searchTerm || searchTerm.trim() === '') {
+                console.log('No search term, including record');
+                return hasQuantity;
+            }
+            
+            // Apply search filter only if there's a search term
+            const medicineName = record.medicine_name?.toLowerCase() || '';
+            const medicineCategory = record.category?.toLowerCase() || '';
+            const searchLower = searchTerm.toLowerCase();
+            
+            const matchesSearch = medicineName.includes(searchLower) || medicineCategory.includes(searchLower);
+            console.log('Matches search:', matchesSearch, 'Medicine name:', medicineName, 'Search term:', searchLower);
+            
+            const shouldInclude = hasQuantity && matchesSearch;
+            console.log('Should include record:', shouldInclude);
+            
+            return shouldInclude;
         });
-        return processed.sort((a, b) => new Date((a.expiration_date || '') as string).getTime() - new Date((b.expiration_date || '') as string).getTime());
+        
+        console.log('Total inventory records:', medicines.length);
+        console.log('Records with quantity >= 0:', medicines.filter((r: BranchInventoryItem) => (r.quantity || 0) >= 0).length);
+        console.log('Filtered records:', filtered.length);
+        console.log('Search term:', searchTerm);
+        
+        // Sort by expiration date
+        return filtered.sort((a, b) => {
+            const dateA = a.expiration_date ? new Date(a.expiration_date).getTime() : 0;
+            const dateB = b.expiration_date ? new Date(b.expiration_date).getTime() : 0;
+            return dateA - dateB;
+        });
+    };
+
+    // Pagination logic
+    const getPaginatedMedicines = () => {
+        const filtered = getFilteredAndSortedMedicines();
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        const endIndex = startIndex + itemsPerPage;
+        return filtered.slice(startIndex, endIndex);
+    };
+
+    const totalPages = Math.ceil(getFilteredAndSortedMedicines().length / itemsPerPage);
+
+    // Reset to page 1 when search term changes
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchTerm]);
+
+    const handlePageChange = (page: number) => {
+        setCurrentPage(page);
     };
 
     const toggleSidebar = () => setSidebarOpen(!isSidebarOpen);
@@ -398,16 +471,23 @@ const OtherBranchInventoryPage: React.FC = () => {
                         <div className="flex items-center justify-between mb-6 flex-shrink-0">
                             <div>
                                 <h2 className="text-xl font-medium text-black mb-1">Other Branch - Stock Available List</h2>
-                                <p className="text-gray-600 text-sm">{branch.name} {branch.suffix}</p>
+                                <p className="text-gray-600 text-sm">
+                                    {branch.name} {branch.suffix}
+                                    {searchTerm && (
+                                        <span className="ml-2 text-[#a3386c] font-medium">
+                                            ({getFilteredAndSortedMedicines().length} of {medicines.length} medicines)
+                                        </span>
+                                    )}
+                                </p>
                             </div>
                             <div className="relative">
                                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                                 <input
                                     type="text"
-                                    placeholder="Search Medicine"
+                                    placeholder="Search by medicine name or category..."
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
-                                    className={`w-64 pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#a3386c] focus:border-transparent text-sm ${searchTerm ? 'text-black' : 'text-gray-400'}`}
+                                    className={`w-80 pl-10 pr-4 py-2 border ${searchTerm ? 'border-[#a3386c]' : 'border-gray-300'} rounded-lg focus:ring-2 focus:ring-[#a3386c] focus:border-transparent text-sm ${searchTerm ? 'text-black' : 'text-gray-400'}`}
                                 />
                             </div>
                         </div>
@@ -422,7 +502,47 @@ const OtherBranchInventoryPage: React.FC = () => {
                             </div>
                         ) : (
                             <>
-                                <OtherInventoryTable medicines={getFilteredAndSortedMedicines()} searchTerm={searchTerm} />
+                                <OtherInventoryTable medicines={getPaginatedMedicines()} searchTerm={searchTerm} />
+                                
+                                {/* Pagination Controls */}
+                                {getFilteredAndSortedMedicines().length > itemsPerPage && (
+                                    <div className="flex justify-center items-center mt-6 space-x-2">
+                                        <button
+                                            onClick={() => handlePageChange(currentPage - 1)}
+                                            disabled={currentPage === 1}
+                                            className="px-4 py-2 border border-gray-300 rounded-md bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                        >
+                                            Previous
+                                        </button>
+                                        
+                                        {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                                            <button
+                                                key={page}
+                                                onClick={() => handlePageChange(page)}
+                                                className={`px-4 py-2 border rounded-md transition-colors ${
+                                                    currentPage === page
+                                                        ? 'bg-[#a3386c] text-white border-[#a3386c]'
+                                                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                                                }`}
+                                            >
+                                                {page}
+                                            </button>
+                                        ))}
+                                        
+                                        <button
+                                            onClick={() => handlePageChange(currentPage + 1)}
+                                            disabled={currentPage === totalPages}
+                                            className="px-4 py-2 border border-gray-300 rounded-md bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                        >
+                                            Next
+                                        </button>
+                                        
+                                        <span className="text-sm text-gray-600 ml-4">
+                                            Page {currentPage} of {totalPages} ({getFilteredAndSortedMedicines().length} items)
+                                        </span>
+                                    </div>
+                                )}
+                                
                                 <div className="flex justify-end mt-8 flex-shrink-0">
                                     <button onClick={handleRequestMedicine} className="bg-[#a3386c] hover:bg-[#8a2f5a] text-white font-medium py-3 px-8 rounded-lg transition-colors duration-200 cursor-pointer transform hover:scale-105">
                                         REQUEST MEDICINE

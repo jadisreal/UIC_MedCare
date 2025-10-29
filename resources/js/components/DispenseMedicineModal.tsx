@@ -29,6 +29,7 @@ const DispenseMedicineModal: React.FC<DispenseMedicineModalProps> = ({
     const [selectedDateReceived, setSelectedDateReceived] = useState<string | null>(null);
     const [expirationDate, setExpirationDate] = useState<string | null>(null);
     const [filteredBatches, setFilteredBatches] = useState<Array<any>>(batches || []);
+    const [maxQuantityForSelectedBatch, setMaxQuantityForSelectedBatch] = useState<number>(currentStock);
 
     const NO_DATE = '__NO_DATE__';
     const normalizeDate = (d: any) => {
@@ -47,14 +48,16 @@ const DispenseMedicineModal: React.FC<DispenseMedicineModalProps> = ({
             if (found) {
                 setSelectedDateReceived(found.date_received ? normalizeDate(found.date_received) : null);
                 setExpirationDate(found.expiration_date ? normalizeDate(found.expiration_date) : null);
+                // Update max quantity for the selected batch
+                setMaxQuantityForSelectedBatch(found.quantity || 0);
             }
         } else {
             // no batch selected -> keep the selectedDateReceived (user's filter),
             // but clear expiration since no specific batch is chosen
-            // (previous behavior cleared the date too which reverted the select to "All Dates").
             setExpirationDate(null);
+            setMaxQuantityForSelectedBatch(currentStock);
         }
-    }, [selectedBatch, batches, filteredBatches]);
+    }, [selectedBatch, batches, filteredBatches, currentStock]);
 
     useEffect(() => {
         if (isOpen) {
@@ -63,8 +66,9 @@ const DispenseMedicineModal: React.FC<DispenseMedicineModalProps> = ({
             setSelectedDateReceived(null);
             setExpirationDate(null);
             setFilteredBatches(batches || []);
+            setMaxQuantityForSelectedBatch(currentStock);
         }
-    }, [isOpen, batches]);
+    }, [isOpen, batches, currentStock]);
 
     useEffect(() => {
         if (isOpen) {
@@ -85,24 +89,22 @@ const DispenseMedicineModal: React.FC<DispenseMedicineModalProps> = ({
             return;
         }
 
-        // if a batch is selected, enforce max <= selected batch quantity; otherwise enforce <= total currentStock
-        let maxAllowed = currentStock;
-        if (selectedBatch) {
-            const batch = batches.find((b: any) => b.medicine_stock_in_id === selectedBatch);
-            if (batch) maxAllowed = batch.quantity || maxAllowed;
+        if (!selectedBatch) {
+            Swal.fire({ icon: 'error', title: 'No Batch Selected', text: 'Please select a batch to dispense from.', confirmButtonText: 'OK' });
+            return;
         }
+
+        // Get the max quantity for the selected batch
+        const batch = batches.find((b: any) => b.medicine_stock_in_id === selectedBatch);
+        const maxAllowed = batch ? batch.quantity : maxQuantityForSelectedBatch;
 
         if (numQuantity > maxAllowed) {
             Swal.fire({
                 icon: 'error',
-                title: 'Quantity Exceeds Stock',
-                text: `Quantity cannot exceed the current stock of ${maxAllowed}.`,
+                title: 'Quantity Exceeds Available Stock',
+                text: `The quantity cannot exceed ${maxAllowed} units for this batch.`,
                 confirmButtonText: 'OK'
             });
-            return;
-        }
-        if (!selectedBatch) {
-            Swal.fire({ icon: 'error', title: 'No Batch Selected', text: 'Please select a batch to dispense from.', confirmButtonText: 'OK' });
             return;
         }
 
@@ -206,8 +208,13 @@ const DispenseMedicineModal: React.FC<DispenseMedicineModalProps> = ({
                                                     const val = raw ? normalizeDate(raw) : null;
                                                     setExpirationDate(val);
                                                     const match = (filteredBatches || batches).find((b: any) => normalizeDate(b.expiration_date) === normalizeDate(val));
-                                                    if (match) setSelectedBatch(match.medicine_stock_in_id);
-                                                    else setSelectedBatch(null);
+                                                    if (match) {
+                                                        setSelectedBatch(match.medicine_stock_in_id);
+                                                        setMaxQuantityForSelectedBatch(match.quantity || 0);
+                                                    } else {
+                                                        setSelectedBatch(null);
+                                                        setMaxQuantityForSelectedBatch(currentStock);
+                                                    }
                                                 }}
                                                 className={`w-full p-3 border rounded text-base text-gray-700 ${!selectedDateReceived ? 'opacity-60 cursor-not-allowed bg-gray-100' : ''}`}
                                                 disabled={!selectedDateReceived}
@@ -230,10 +237,11 @@ const DispenseMedicineModal: React.FC<DispenseMedicineModalProps> = ({
                                 type="number"
                                 value={quantity}
                                 onChange={(e) => setQuantity(e.target.value)}
-                                placeholder="e.g., 10"
+                                placeholder={selectedBatch ? `Max: ${maxQuantityForSelectedBatch}` : 'Select a batch first'}
                                 min="1"
-                                max={currentStock}
+                                max={maxQuantityForSelectedBatch}
                                 className="w-full text-center p-2 border-2 border-[#A3386C] rounded-lg focus:ring-2 focus:ring-[#A3386C] focus:border-transparent text-gray-700 text-base"
+                                disabled={!selectedBatch}
                                 autoFocus
                             />
                             

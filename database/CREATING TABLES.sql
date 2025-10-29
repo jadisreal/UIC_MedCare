@@ -132,12 +132,12 @@ CREATE TABLE history_log (
 
 CREATE TABLE notifications (
     notification_id INT IDENTITY(1,1) PRIMARY KEY,
-    branch_id INT NOT NULL,                   -- branch that raised or triggered the notification
-    medicine_id INT NOT NULL,                 -- medicine concerned
-    type VARCHAR(50) NOT NULL,                -- 'low_stock' or 'request'
-    message VARCHAR(MAX) NOT NULL,            -- system-generated text
-    quantity INT NULL,                        -- quantity requested (don't show for low stock)
-    status VARCHAR(20) DEFAULT 'pending',     -- 'pending', 'confirmed', 'declined' for requests
+    branch_id INT NOT NULL,                  
+    medicine_id INT NOT NULL,               
+    type VARCHAR(50) NOT NULL,               
+    message VARCHAR(MAX) NOT NULL,       
+    quantity INT NULL,                        
+    status VARCHAR(20) DEFAULT 'pending',     
     created_at DATETIME DEFAULT GETDATE(),
     updated_at DATETIME NULL,
 

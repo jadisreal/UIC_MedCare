@@ -1335,28 +1335,31 @@ class UserController extends Controller
         try {
             Log::info("Getting low stock medicines for branch: {$branchId}");
 
-            // Use subqueries to avoid JOIN multiplication issues
-            // Wrap in outer query to filter by available_quantity
+            // Group by medicine_name to match the frontend inventory table display
+            // This aggregates all quantities for medicines with the same name regardless of medicine_id
             $lowStockMedicines = DB::select("
                 SELECT * FROM (
                     SELECT 
-                        m.medicine_id,
+                        MIN(m.medicine_id) as medicine_id,
                         m.medicine_name,
-                        m.medicine_category,
+                        MAX(m.medicine_category) as medicine_category,
                         (
                             (SELECT COALESCE(SUM(msi.quantity), 0) 
                              FROM medicine_stock_in msi 
-                             WHERE msi.medicine_id = m.medicine_id AND msi.branch_id = ?)
+                             JOIN medicines m2 ON msi.medicine_id = m2.medicine_id
+                             WHERE m2.medicine_name = m.medicine_name AND msi.branch_id = ?)
                             -
                             (SELECT COALESCE(SUM(mso.quantity_dispensed), 0)
                              FROM medicine_stock_out mso
                              JOIN medicine_stock_in msi ON mso.medicine_stock_in_id = msi.medicine_stock_in_id
-                             WHERE msi.medicine_id = m.medicine_id AND msi.branch_id = ?)
+                             JOIN medicines m2 ON msi.medicine_id = m2.medicine_id
+                             WHERE m2.medicine_name = m.medicine_name AND msi.branch_id = ?)
                             -
                             (SELECT COALESCE(SUM(ma.quantity), 0)
                              FROM medicine_archived ma
                              JOIN medicine_stock_in msi ON ma.medicine_stock_in_id = msi.medicine_stock_in_id
-                             WHERE msi.medicine_id = m.medicine_id AND msi.branch_id = ?)
+                             JOIN medicines m2 ON msi.medicine_id = m2.medicine_id
+                             WHERE m2.medicine_name = m.medicine_name AND msi.branch_id = ?)
                         ) as available_quantity
                     FROM medicines m
                     WHERE m.medicine_id IN (
@@ -1364,6 +1367,7 @@ class UserController extends Controller
                         FROM medicine_stock_in 
                         WHERE branch_id = ?
                     )
+                    GROUP BY m.medicine_name
                 ) AS inventory
                 WHERE available_quantity <= 50 AND available_quantity > 0
                 ORDER BY available_quantity ASC
@@ -1390,51 +1394,8 @@ class UserController extends Controller
                 ];
             }, $lowStockMedicines);
 
-            // Insert low-stock notifications only once per medicine per branch
-            try {
-                Log::info("Attempting to insert notifications for " . count($results) . " low stock medicines");
-                
-                foreach ($results as $med) {
-                    $branchIdInt = intval($branchId);
-                    $medicineName = $med['medicine_name'];
-                    $medicineId = intval($med['medicine_id'] ?? 0);
-                    
-                    Log::info("Checking notification for medicine ID {$medicineId} ({$medicineName}), quantity: {$med['quantity']}");
-                    
-                    // Prevent duplicate low-stock notifications per branch + medicine using reference_id
-                    $exists = DB::table('notifications')
-                        ->where('branch_id', $branchIdInt)
-                        ->where('type', 'low_stock')
-                        ->where('reference_id', $medicineId)
-                        ->exists();
-
-                    if (!$exists) {
-                        // Format message as requested: title, "NAME: N units remaining", and date string on separate lines
-                        $title = 'Low Stock Alert';
-                        $line2 = sprintf('%s: %d units remaining', $medicineName, intval($med['quantity']));
-                        $dateStr = now()->format('n/j/Y'); // e.g. 9/25/2025
-                        // join with newline characters so the UI can render as multi-line if desired
-                        $message = $title . "\n" . $line2 . "\n" . $dateStr;
-
-                        DB::table('notifications')->insert([
-                            'branch_id' => $branchIdInt,
-                            'type' => 'low_stock',
-                            'message' => $message,
-                            'reference_id' => $medicineId,
-                            'is_read' => 0,
-                            'created_at' => now()
-                        ]);
-                        
-                        Log::info("✓ Created notification for medicine ID {$medicineId} ({$medicineName})");
-                    } else {
-                        Log::info("Notification already exists for medicine ID {$medicineId} ({$medicineName})");
-                    }
-                }
-                Log::info("Notification insertion complete");
-            } catch (\Exception $e) {
-                Log::error('Failed to insert low stock notifications: ' . $e->getMessage());
-                Log::error('Stack trace: ' . $e->getTraceAsString());
-            }
+            // Notification creation removed - frontend handles low stock alerts via toast
+            Log::info("Low stock check complete. Found " . count($results) . " medicines with stock ≤ 50 units");
 
             return response()->json($results);
 

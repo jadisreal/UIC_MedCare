@@ -73,6 +73,10 @@ const BranchInventoryPage: React.FC = () => {
     const [archivedMedicines, setArchivedMedicines] = useState<any[]>([]);
 
     const [notificationsState, setNotificationsState] = useState<NotificationType[]>([]);
+    
+    // Pagination state
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 6;
 
     // HELPER FUNCTIONS
     function getCurrentDateTime(): DateTimeData {
@@ -82,55 +86,29 @@ const BranchInventoryPage: React.FC = () => {
         return { date, time };
     }
 
-    // Check for low stock medicines based on reorder levels
-    const checkLowStockMedicines = async () => {
-        try {
-            // Get all medicines with their current stock levels
-            const currentStockLevels = branchInventory.reduce((acc: Record<number, number>, record) => {
-                const medicineId = record.medicine_id;
-                const quantity = record.quantity || 0;
-                
-                if (acc[medicineId]) {
-                    acc[medicineId] += quantity;
-                } else {
-                    acc[medicineId] = quantity;
-                }
-                return acc;
-            }, {} as Record<number, number>);
-
-            // Aggregate total stock per medicine across batches so we consider the
-            // combined quantity (not per-stock-in row). This prevents missing a
-            // medicine when it has multiple batches whose individual quantities
-            // are >50 but whose sum is <=50, or vice-versa.
-            const minimumLevel = 50; // Default reorder level
-            const lowStockMedicines: any[] = [];
-
-            for (const medicineIdStr of Object.keys(currentStockLevels)) {
-                const medicineId = Number(medicineIdStr);
-                const totalQty = currentStockLevels[medicineId] || 0;
-
-                if (totalQty <= minimumLevel) {
-                    // Prefer the canonical medicine name from the loaded `medicines` list
-                    // (populated by BranchInventoryService.getAllMedicines()). If not
-                    // available, fall back to a representative inventory record, then
-                    // finally to a generic placeholder.
-                    const rep = branchInventory.find(r => r.medicine_id === medicineId);
-                    const canonical = medicines.find(m => Number(m.medicine_id) === medicineId) as any;
-                    const medicineName = canonical?.medicine_name || rep?.medicine?.medicine_name || `Medicine ${medicineId}`;
-                    lowStockMedicines.push({
-                        medicine_id: medicineId,
-                        medicine_name: medicineName,
-                        current_stock: totalQty,
-                        minimum_level: minimumLevel
-                    });
-                }
+    // Helper to group inventory by medicine name (used for table display and low stock check)
+    const groupInventoryByMedicine = (inventory: BranchInventoryItem[]) => {
+        const groups: Record<string, any> = {};
+        for (const rec of inventory) {
+            const name = rec.medicine?.medicine_name || 'Unknown';
+            if (!groups[name]) {
+                groups[name] = {
+                    medicine_name: name,
+                    medicine_category: rec.medicine?.medicine_category || 'No Category',
+                    total_quantity: 0,
+                    batches: [] as any[],
+                    representative: rec
+                };
             }
-
-            return lowStockMedicines;
-        } catch (error) {
-            console.error('Error checking low stock medicines:', error);
-            return [];
+            groups[name].total_quantity += rec.quantity || 0;
+            groups[name].batches.push({
+                medicine_stock_in_id: rec.medicine_stock_in_id,
+                expiration_date: rec.expiration_date,
+                date_received: rec.date_received,
+                quantity: rec.quantity || 0
+            });
         }
+        return Object.values(groups);
     };
 
     // EFFECTS
@@ -143,52 +121,47 @@ const BranchInventoryPage: React.FC = () => {
         return () => clearInterval(timer);
     }, []);
 
-    // Check for low stock medicines when branchInventory changes and persist to database
+    // Check for low stock medicines based on what's displayed in the table
+    // This ensures consistency between the table quantities and alerts
     useEffect(() => {
         if (branchInventory.length > 0 && branchInfo) {
-            checkLowStockMedicines().then(async (lowStock) => {
-                // Normalize low stock objects so NotificationBell receives a numeric `quantity` field
-                const normalized = lowStock.map(ls => ({
-                    medicine_id: ls.medicine_id,
-                    medicine_name: ls.medicine_name,
-                    quantity: typeof ls.current_stock === 'number' ? ls.current_stock : (ls.current_stock ? Number(ls.current_stock) : 0),
-                    minimum_level: ls.minimum_level
+            // Calculate low stock based on the SAME grouped data shown in the table
+            const filtered = branchInventory.filter(rec => (rec.quantity || 0) >= 0); // Include 0 quantity
+            const grouped = groupInventoryByMedicine(filtered);
+            const minimumLevel = 50;
+            
+            const lowStock = grouped
+                .filter(group => group.total_quantity <= minimumLevel)
+                .map(group => ({
+                    medicine_id: group.representative.medicine_id,
+                    medicine_name: group.medicine_name,
+                    quantity: group.total_quantity,
+                    minimum_level: minimumLevel
                 }));
 
-                // Set local low-stock state once using the normalized values so the
-                // NotificationBell can show the toast immediately. Then call the
-                // server endpoint once to ensure deduplicated notifications are
-                // persisted. Avoid setting lowStockMedicines again from the server
-                // result to prevent double-dispatch and potential duplicate UI
-                // behavior.
-                setLowStockMedicines(normalized);
+            setLowStockMedicines(lowStock);
 
-                // If there are low-stock medicines, show a short toast at top-right
-                try {
-                    if (normalized.length > 0) {
-                        const listHtml = normalized.map(m => `${m.medicine_name} - ${m.quantity} units left`).join('<br/>');
-                        Swal.fire({
-                            target: '#branch-main-content',
-                            title: 'Low stock',
-                            html: `<div style="text-align:left;margin-left:0.25rem">${listHtml}</div>`,
-                            icon: 'warning',
-                            position: 'top-end',
-                            toast: true,
-                            timer: 4000,
-                            timerProgressBar: true,
-                            showConfirmButton: false,
-                            customClass: { popup: 'shadow-md rounded-md' },
-                            didOpen: (popup) => { popup.style.maxWidth = '420px'; }
-                        });
-                    }
+            // Show toast only if there are low-stock medicines
+            if (lowStock.length > 0) {
+                const listHtml = lowStock.map(m => `${m.medicine_name} - ${m.quantity} units left`).join('<br/>');
+                Swal.fire({
+                    target: '#branch-main-content',
+                    title: 'Low stock',
+                    html: `<div style="text-align:left;margin-left:0.25rem">${listHtml}</div>`,
+                    icon: 'warning',
+                    position: 'top-end',
+                    toast: true,
+                    timer: 3000,
+                    timerProgressBar: true,
+                    showConfirmButton: false,
+                    customClass: { popup: 'shadow-md rounded-md' },
+                    didOpen: (popup) => { popup.style.maxWidth = '420px'; }
+                });
+            }
 
-                    const branchId = branchInfo.branch_id;
-                    // perform server call once; server will insert deduped notifications
-                    await BranchInventoryService.getLowStockMedicinesMSSQL(branchId).catch((e) => { console.warn('Low-stock server call failed', e); return []; });
-                } catch (err) {
-                    console.error('Error handling low-stock notifications:', err);
-                }
-            });
+            // Also call backend to persist notifications to database
+            BranchInventoryService.getLowStockMedicinesMSSQL(branchInfo.branch_id)
+                .catch((err) => console.warn('Failed to sync notifications with backend:', err));
         }
     }, [branchInventory, branchInfo]);
 
@@ -341,57 +314,66 @@ const BranchInventoryPage: React.FC = () => {
                 // Database connectivity tests removed - now using MSSQL API
                 console.log('Using MSSQL API - no direct database connectivity tests needed');
 
-                // determine target stock in id and quantity (allow override when a specific batch was selected)
-                const targetStockInId = medicineStockInId ?? medicineToDelete.medicine_stock_in_id;
-                const qtyToArchive = quantityToArchive ?? medicineToDelete.quantity ?? 0;
-
-                if (targetStockInId) {
-                    console.log('Using archive flow for stock record');
-                    console.log('Stock record ID:', targetStockInId);
-                    console.log('Quantity to archive:', qtyToArchive);
-
-                    const success = await BranchInventoryService.archiveMedicine({
-                        medicineStockInId: targetStockInId,
-                        quantity: qtyToArchive,
-                        description: reason || 'Medicine archived from inventory',
-                        branchId: branchInfo.branch_id,
-                        dateReceived: dateReceived || medicineToDelete.date_received || null,
-                        expirationDate: expirationDate || medicineToDelete.expiration_date || null
-                    });
-
-                    if (!success) {
-                        console.error('❌ Archiving failed');
-                        Swal.fire({
-                            icon: 'error',
-                            title: 'Archive Failed',
-                            text: 'Failed to archive medicine. Please check the console for details and try again.',
-                            confirmButtonText: 'OK'
-                        });
-                        return;
-                    }
-
-                    console.log('✅ Archiving succeeded');
-                    // history handled by DB triggers
-                    // Refresh archived list if modal is open
-                    if (isArchivedModalOpen) await loadArchivedMedicines();
-                } else {
-                    console.log('❌ No medicine_stock_in_id found, cannot archive individual record');
+                // Archive ALL batches for this medicine (since we removed date selection)
+                // Get all batches from the attached data or fetch them
+                const batches = (medicineToDelete as any)?._availableBatches || [];
+                
+                if (batches.length === 0) {
+                    console.error('❌ No batches found to archive');
                     Swal.fire({
                         icon: 'error',
                         title: 'Cannot Archive Medicine',
-                        text: 'Cannot archive medicine: missing stock record ID. Please refresh the page and try again.',
+                        text: 'No batches found for this medicine. Please refresh and try again.',
                         confirmButtonText: 'OK'
                     });
                     return;
                 }
+
+                console.log(`Archiving ${batches.length} batch(es) for ${medicineToDelete.medicine?.medicine_name}`);
+                
+                // Archive each batch
+                let successCount = 0;
+                for (const batch of batches) {
+                    const success = await BranchInventoryService.archiveMedicine({
+                        medicineStockInId: batch.medicine_stock_in_id,
+                        quantity: batch.quantity || 0,
+                        description: reason || 'Medicine archived from inventory',
+                        branchId: branchInfo.branch_id,
+                        dateReceived: batch.date_received || null,
+                        expirationDate: batch.expiration_date || null
+                    });
+
+                    if (success) {
+                        successCount++;
+                        console.log(`✅ Archived batch ${batch.medicine_stock_in_id}`);
+                    } else {
+                        console.error(`❌ Failed to archive batch ${batch.medicine_stock_in_id}`);
+                    }
+                }
+
+                if (successCount === 0) {
+                    console.error('❌ All archiving operations failed');
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Archive Failed',
+                        text: 'Failed to archive medicine batches. Please check the console for details and try again.',
+                        confirmButtonText: 'OK'
+                    });
+                    return;
+                }
+
+                console.log(`✅ Successfully archived ${successCount} out of ${batches.length} batch(es)`);
+                // history handled by DB triggers
+                // Refresh archived list if modal is open
+                if (isArchivedModalOpen) await loadArchivedMedicines();
 
                 console.log('✅ Successfully removed medicine from branch inventory');
                 
                 // Show success alert after successful deletion
                 Swal.fire({
                     icon: 'success',
-                    title: 'Medicine Removed Successfully',
-                    text: `${medicineToDelete?.medicine_name || 'Medicine'} has been successfully removed from inventory.`,
+                    title: 'Medicine Archived Successfully',
+                    text: `${medicineToDelete?.medicine?.medicine_name || 'Medicine'} has been successfully archived.`,
                     confirmButtonText: 'OK',
                     timer: 3000,
                     timerProgressBar: true
@@ -641,11 +623,11 @@ const BranchInventoryPage: React.FC = () => {
             const medicine = record.medicine;
             console.log('Medicine data:', medicine);
             
-            // Filter out medicines with zero or negative quantity (removed medicines)
-            const hasQuantity = (record.quantity || 0) > 0;
+            // Show all medicines including those with 0 quantity
+            const hasQuantity = (record.quantity || 0) >= 0;
             console.log('Has quantity:', hasQuantity, 'Quantity:', record.quantity);
             
-            // If no search term, show all records with quantity > 0
+            // If no search term, show all records (including 0 quantity)
             if (!searchTerm || searchTerm.trim() === '') {
                 console.log('No search term, including record');
                 return hasQuantity;
@@ -666,7 +648,7 @@ const BranchInventoryPage: React.FC = () => {
         });
         
         console.log('Total inventory records:', branchInventory.length);
-        console.log('Records with quantity > 0:', branchInventory.filter((r: BranchInventoryItem) => (r.quantity || 0) > 0).length);
+        console.log('Records with quantity >= 0:', branchInventory.filter((r: BranchInventoryItem) => (r.quantity || 0) >= 0).length);
         console.log('Filtered records:', filtered.length);
         console.log('Search term:', searchTerm);
         
@@ -676,27 +658,26 @@ const BranchInventoryPage: React.FC = () => {
     // Group inventory records by medicine name to merge duplicates in the table
     const getGroupedInventory = () => {
         const filtered = getFilteredStockRecords();
-        const groups: Record<string, any> = {};
-        for (const rec of filtered) {
-            const name = rec.medicine?.medicine_name || 'Unknown';
-            if (!groups[name]) {
-                groups[name] = {
-                    medicine_name: name,
-                    medicine_category: rec.medicine?.medicine_category || 'No Category',
-                    total_quantity: 0,
-                    batches: [] as any[],
-                    representative: rec
-                };
-            }
-            groups[name].total_quantity += rec.quantity || 0;
-            groups[name].batches.push({
-                medicine_stock_in_id: rec.medicine_stock_in_id,
-                expiration_date: rec.expiration_date,
-                date_received: rec.date_received,
-                quantity: rec.quantity || 0
-            });
-        }
-        return Object.values(groups);
+        return groupInventoryByMedicine(filtered);
+    };
+
+    // Pagination logic
+    const getPaginatedInventory = () => {
+        const grouped = getGroupedInventory();
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        const endIndex = startIndex + itemsPerPage;
+        return grouped.slice(startIndex, endIndex);
+    };
+
+    const totalPages = Math.ceil(getGroupedInventory().length / itemsPerPage);
+
+    // Reset to page 1 when search term changes
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchTerm]);
+
+    const handlePageChange = (page: number) => {
+        setCurrentPage(page);
     };
 
     const toggleSidebar = () => setSidebarOpen(!isSidebarOpen);
@@ -729,6 +710,7 @@ const BranchInventoryPage: React.FC = () => {
                 setIsOpen={setAddMedicineModalOpen}
                 onAddMedicine={handleAddMedicineSubmit}
                 medicineOptions={medicines.map(m => m.medicine_name)}
+                usesOptions={Array.from(new Set(medicines.map(m => m.medicine_category).filter((c): c is string => !!c)))}
                 branchName={branchInfo?.branch_name}
             />
             <RemovalReasonModal
@@ -909,7 +891,7 @@ const BranchInventoryPage: React.FC = () => {
                                 <thead className="bg-[#F9E7F0] text-black sticky top-0 z-10"> 
                                     <tr>
                                         <th className="px-6 py-4 text-left font-bold">MEDICINE NAME</th>
-                                        <th className="px-6 py-4 text-left font-bold">CATEGORY</th>
+                                        <th className="px-6 py-4 text-left font-bold">USES</th>
                                         <th className="px-6 py-4 text-left font-bold">QUANTITY</th>
                                         <th className="px-6 py-4 text-center font-bold">ACTIONS</th>
                                     </tr>
@@ -931,7 +913,7 @@ const BranchInventoryPage: React.FC = () => {
                                             </td>
                                         </tr>
                                     ) : (
-                                        getGroupedInventory().map((group: any, idx: number) => (
+                                        getPaginatedInventory().map((group: any, idx: number) => (
                                             <tr 
                                                 key={`${group.medicine_name}-${idx}`} 
                                                 className={`hover:bg-gray-50 transition-colors duration-300 ${
@@ -988,6 +970,45 @@ const BranchInventoryPage: React.FC = () => {
                                 </tbody>
                             </table>
                         </div>
+
+                        {/* Pagination Controls */}
+                        {getGroupedInventory().length > itemsPerPage && (
+                            <div className="flex justify-center items-center mt-6 space-x-2">
+                                <button
+                                    onClick={() => handlePageChange(currentPage - 1)}
+                                    disabled={currentPage === 1}
+                                    className="px-4 py-2 border border-gray-300 rounded-md bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    Previous
+                                </button>
+                                
+                                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                                    <button
+                                        key={page}
+                                        onClick={() => handlePageChange(page)}
+                                        className={`px-4 py-2 border rounded-md transition-colors ${
+                                            currentPage === page
+                                                ? 'bg-[#a3386c] text-white border-[#a3386c]'
+                                                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                                        }`}
+                                    >
+                                        {page}
+                                    </button>
+                                ))}
+                                
+                                <button
+                                    onClick={() => handlePageChange(currentPage + 1)}
+                                    disabled={currentPage === totalPages}
+                                    className="px-4 py-2 border border-gray-300 rounded-md bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    Next
+                                </button>
+                                
+                                <span className="text-sm text-gray-600 ml-4">
+                                    Page {currentPage} of {totalPages} ({getGroupedInventory().length} items)
+                                </span>
+                            </div>
+                        )}
 
                         <div className="flex justify-end mt-8 flex-shrink-0 space-x-3">
                             <button onClick={async () => { await loadArchivedMedicines(); setArchivedModalOpen(true); }} className="bg-gray-200 hover:bg-gray-300 text-black font-medium py-3 px-5 rounded-lg transition-colors duration-200 cursor-pointer">

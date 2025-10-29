@@ -31,6 +31,10 @@ const History: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [currentUser, setCurrentUser] = useState<any>(null);
 
+    // Pagination state
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 6;
+
     // Load current user
     useEffect(() => {
         const user = UserService.getCurrentUser();
@@ -90,6 +94,25 @@ const History: React.FC = () => {
         }
 
         return filtered;
+    };
+
+    // Pagination logic
+    const getPaginatedHistoryLogs = () => {
+        const filtered = getFilteredAndSortedHistoryLogs();
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        const endIndex = startIndex + itemsPerPage;
+        return filtered.slice(startIndex, endIndex);
+    };
+
+    const totalPages = Math.ceil(getFilteredAndSortedHistoryLogs().length / itemsPerPage);
+
+    // Reset to page 1 when search term or sort changes
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchTerm, sortBy]);
+
+    const handlePageChange = (page: number) => {
+        setCurrentPage(page);
     };
 
     // Get activity icon and color
@@ -320,7 +343,7 @@ const History: React.FC = () => {
                                 <div className="flex-1 overflow-y-auto overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
                                     <table className="min-w-full">
                                         <tbody className="bg-white divide-y divide-gray-200">
-                                            {getFilteredAndSortedHistoryLogs().map((log: HistoryLog, index: number) => (
+                                            {getPaginatedHistoryLogs().map((log: HistoryLog, index: number) => (
                                                 <tr key={log.history_id} className="hover:bg-gray-50 transition-colors duration-200">
                                                     <td className="px-6 py-4 text-sm text-gray-900 w-1/5">
                                                         <div>
@@ -377,10 +400,53 @@ const History: React.FC = () => {
                                     </table>
                                 </div>
                                 
+                                {/* Pagination Controls */}
+                                {getFilteredAndSortedHistoryLogs().length > itemsPerPage && (
+                                    <div className="flex-shrink-0 px-4 py-3 bg-gray-50 border-t border-gray-200">
+                                        <div className="flex justify-center items-center space-x-2">
+                                            <button
+                                                onClick={() => handlePageChange(currentPage - 1)}
+                                                disabled={currentPage === 1}
+                                                className="px-4 py-2 border border-gray-300 rounded-md bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                            >
+                                                Previous
+                                            </button>
+                                            
+                                            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                                                <button
+                                                    key={page}
+                                                    onClick={() => handlePageChange(page)}
+                                                    className={`px-4 py-2 border rounded-md transition-colors ${
+                                                        currentPage === page
+                                                            ? 'bg-[#a3386c] text-white border-[#a3386c]'
+                                                            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                                                    }`}
+                                                >
+                                                    {page}
+                                                </button>
+                                            ))}
+                                            
+                                            <button
+                                                onClick={() => handlePageChange(currentPage + 1)}
+                                                disabled={currentPage === totalPages}
+                                                className="px-4 py-2 border border-gray-300 rounded-md bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                            >
+                                                Next
+                                            </button>
+                                            
+                                            <span className="text-sm text-gray-600 ml-4">
+                                                Page {currentPage} of {totalPages} | Showing {getPaginatedHistoryLogs().length} of {getFilteredAndSortedHistoryLogs().length} activities
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
+                                
                                 {/* Optional: Record count indicator */}
-                                <div className="flex-shrink-0 px-4 py-2 bg-gray-50 border-t border-gray-200 text-xs text-gray-500 text-center">
-                                    Showing {getFilteredAndSortedHistoryLogs().length} of {historyLogs.length} activities
-                                </div>
+                                {getFilteredAndSortedHistoryLogs().length <= itemsPerPage && (
+                                    <div className="flex-shrink-0 px-4 py-2 bg-gray-50 border-t border-gray-200 text-xs text-gray-500 text-center">
+                                        Showing {getFilteredAndSortedHistoryLogs().length} of {historyLogs.length} activities
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}

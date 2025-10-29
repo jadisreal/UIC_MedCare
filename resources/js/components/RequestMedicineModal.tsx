@@ -21,6 +21,7 @@ const RequestMedicineModal: React.FC<RequestMedicineModalProps> = ({
 }) => {
   const [medicines, setMedicines] = useState<BranchInventoryItem[]>([]);
   const [selectedMedicineId, setSelectedMedicineId] = useState<number | null>(null);
+  const [availableBatches, setAvailableBatches] = useState<BranchInventoryItem[]>([]);
   const [expirationDates, setExpirationDates] = useState<string[]>([]);
   const [selectedExpiration, setSelectedExpiration] = useState('');
   const [dateReceivedOptions, setDateReceivedOptions] = useState<string[]>([]);
@@ -51,8 +52,11 @@ const RequestMedicineModal: React.FC<RequestMedicineModalProps> = ({
         }
       })();
       setSelectedMedicineId(null);
+      setAvailableBatches([]);
       setExpirationDates([]);
       setSelectedExpiration('');
+      setDateReceivedOptions([]);
+      setSelectedDateReceived('');
       setMaxQuantity(0);
       setQuantity('');
       setErrors({});
@@ -61,36 +65,115 @@ const RequestMedicineModal: React.FC<RequestMedicineModalProps> = ({
 
   useEffect(() => {
     if (selectedMedicineId !== null) {
-      const med = medicines.find((m) => Number(m.medicine_id) === Number(selectedMedicineId));
-      if (med) {
-        // Populate available options but DO NOT auto-select or clear user selections.
-        const exp = med.expiration_date || '';
-        const newExpirationDates = exp ? [exp] : [];
-        setExpirationDates(newExpirationDates);
+      // Get all batches for this medicine from the backend
+      (async () => {
+        try {
+          const inventory = await BranchInventoryService.getBranchInventory(branchId);
+          // Filter for this medicine only, and only batches with quantity > 50
+          const batches = inventory.filter(
+            (item) => Number(item.medicine_id) === Number(selectedMedicineId) && Number(item.quantity ?? 0) > 50
+          );
+          setAvailableBatches(batches);
 
-        const received = med.date_received || '';
-        const newDateReceivedOptions = received ? [received] : [];
-        setDateReceivedOptions(newDateReceivedOptions);
+          // Extract unique date received options
+          const dateReceivedSet = new Set<string>();
+          batches.forEach((batch) => {
+            if (batch.date_received) dateReceivedSet.add(batch.date_received);
+          });
+          setDateReceivedOptions(Array.from(dateReceivedSet).sort());
 
-        const newMax = Number(med.quantity ?? 0);
-        setMaxQuantity(newMax);
+          // Reset selections when medicine changes
+          setSelectedDateReceived('');
+          setExpirationDates([]);
+          setSelectedExpiration('');
+          setMaxQuantity(0);
+          setQuantity('');
+        } catch (err) {
+          console.error('Failed to load batches:', err);
+          setAvailableBatches([]);
+          setDateReceivedOptions([]);
+          setExpirationDates([]);
+        }
+      })();
+    } else {
+      setAvailableBatches([]);
+      setDateReceivedOptions([]);
+      setExpirationDates([]);
+      setSelectedDateReceived('');
+      setSelectedExpiration('');
+      setMaxQuantity(0);
+    }
+  }, [selectedMedicineId, branchId]);
 
-        // Keep user's selectedDateReceived/selectedExpiration/quantity as-is; validation will catch mismatches.
+  // Update expiration dates when date received is selected
+  useEffect(() => {
+    if (selectedDateReceived && availableBatches.length > 0) {
+      // Filter batches by selected date received
+      const matchingBatches = availableBatches.filter(
+        (batch) => batch.date_received === selectedDateReceived
+      );
+
+      // Extract unique expiration dates from matching batches
+      const expirationSet = new Set<string>();
+      matchingBatches.forEach((batch) => {
+        if (batch.expiration_date) expirationSet.add(batch.expiration_date);
+      });
+
+      setExpirationDates(Array.from(expirationSet).sort());
+      // Reset expiration and max quantity when date received changes
+      setSelectedExpiration('');
+      setMaxQuantity(0);
+      setQuantity('');
+    } else {
+      setExpirationDates([]);
+      setSelectedExpiration('');
+      setMaxQuantity(0);
+    }
+  }, [selectedDateReceived, availableBatches]);
+
+  // Update max quantity when expiration date is selected
+  useEffect(() => {
+    if (selectedDateReceived && selectedExpiration && availableBatches.length > 0) {
+      // Find the specific batch matching both date received and expiration date
+      const matchingBatch = availableBatches.find(
+        (batch) =>
+          batch.date_received === selectedDateReceived &&
+          batch.expiration_date === selectedExpiration
+      );
+
+      if (matchingBatch) {
+        const qty = Number(matchingBatch.quantity ?? 0);
+        setMaxQuantity(qty);
       } else {
-        // If medicine not found in current list, just clear available options but keep user inputs
-        setExpirationDates([]);
-        setDateReceivedOptions([]);
         setMaxQuantity(0);
       }
+      // Reset quantity when expiration changes
+      setQuantity('');
+    } else {
+      setMaxQuantity(0);
     }
-  }, [selectedMedicineId, medicines]);
+  }, [selectedExpiration, selectedDateReceived, availableBatches]);
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
     if (!selectedMedicineId) newErrors.medicine = 'Select a medicine';
+    if (!selectedDateReceived) newErrors.dateReceived = 'Select date received';
     if (!selectedExpiration) newErrors.expiration = 'Select expiration date';
     if (!quantity || quantity <= 0) newErrors.quantity = 'Enter a valid quantity';
     else if (typeof quantity === 'number' && quantity > maxQuantity) newErrors.quantity = 'Exceeds available stock';
+    
+    // Additional validation: ensure the selected batch has quantity > 50
+    if (selectedDateReceived && selectedExpiration && availableBatches.length > 0) {
+      const matchingBatch = availableBatches.find(
+        (batch) =>
+          batch.date_received === selectedDateReceived &&
+          batch.expiration_date === selectedExpiration
+      );
+      if (!matchingBatch || Number(matchingBatch.quantity ?? 0) <= 50) {
+        newErrors.expiration = 'Selected batch must have quantity > 50';
+      }
+    }
+    
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -119,6 +202,7 @@ const RequestMedicineModal: React.FC<RequestMedicineModalProps> = ({
 
   const resetForm = () => {
     setSelectedMedicineId(null);
+    setAvailableBatches([]);
     setExpirationDates([]);
     setSelectedExpiration('');
     setDateReceivedOptions([]);

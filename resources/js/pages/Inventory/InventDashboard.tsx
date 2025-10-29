@@ -77,49 +77,15 @@ const MeditrackDashboard: React.FC = () => {
     const loadLowStockMedicines = async () => {
         try {
             setIsLoading(true);
-            // Fetch full branch inventory and aggregate available quantities per medicine
-            const inventory = await BranchInventoryService.getBranchInventory(currentUser.branch_id);
+            // Use the backend API that aggregates total quantities per medicine
+            const lowStockData = await BranchInventoryService.getLowStockMedicinesMSSQL(currentUser.branch_id);
+            
+            // Sort by quantity (lowest first) and take top 5
+            const sortedLowStock = lowStockData
+                .sort((a, b) => a.quantity - b.quantity)
+                .slice(0, 5);
 
-            const grouped = new Map<number, {
-                medicine_id: number;
-                medicine_name: string;
-                medicine_category?: string;
-                quantity: number;
-            }>();
-
-            for (const rec of inventory) {
-                const id = Number(rec.medicine_id || 0);
-                const name = rec.medicine_name || rec.medicine?.medicine_name || '';
-                const cat = rec.category || rec.medicine?.medicine_category || '';
-                const qty = Number(rec.quantity || 0);
-
-                if (grouped.has(id)) {
-                    grouped.get(id)!.quantity += qty;
-                } else {
-                    grouped.set(id, { medicine_id: id, medicine_name: name, medicine_category: cat, quantity: qty });
-                }
-            }
-
-            const summary = Array.from(grouped.values());
-
-            // Prefer medicines at or below reorder threshold (50). If none, pick the lowest 5 by quantity.
-            const threshold = 50;
-            const low = summary.filter(s => s.quantity <= threshold).sort((a, b) => a.quantity - b.quantity);
-            let top5LowStock = low.length > 0 ? low.slice(0, 5) : summary.sort((a, b) => a.quantity - b.quantity).slice(0, 5);
-
-            // Normalize to BranchStockSummary shape used by the component
-            const normalized = top5LowStock.map((s) => ({
-                medicine_id: s.medicine_id,
-                medicine_name: s.medicine_name,
-                medicine_category: s.medicine_category || '',
-                category: s.medicine_category || '',
-                quantity: s.quantity,
-                reorder_level: threshold,
-                branch_name: currentUser.branch_name || '',
-                branch_id: currentUser.branch_id || 0
-            }));
-
-            setLowStockMedicines(normalized as BranchStockSummary[]);
+            setLowStockMedicines(sortedLowStock);
         } catch (error) {
             console.error('Error loading low stock medicines:', error);
         } finally {
@@ -223,7 +189,7 @@ const MeditrackDashboard: React.FC = () => {
                                     <div className="p-4 border-b border-[#A3386C] flex-shrink-0">
                                         <h3 className="font-normal text-black text-base text-center flex items-center justify-center">
                                             <Calendar className="w-4 h-4 mr-2 text-[#A3386C]" />
-                                            Soon-to-Expire Medications (Top 5)
+                                            Soon-to-Expire Medications
                                         </h3>
                                         <p className="font-light text-gray-600 text-xs text-center mt-2">Most urgent expiries within 30 days</p>
                                     </div>
@@ -273,7 +239,7 @@ const MeditrackDashboard: React.FC = () => {
                                     <div className="p-4 border-b border-[#A3386C] flex-shrink-0">
                                         <h3 className="font-normal text-black text-base text-center flex items-center justify-center">
                                             <Package className="w-4 h-4 mr-2 text-[#A3386C]" />
-                                            Top 5 Medicines Need Reorder
+                                            Medicines Need Reorder
                                         </h3>
                                         <p className="font-light text-gray-600 text-xs text-center mt-2">Stock Level ≤ 50 units</p>
                                     </div>
